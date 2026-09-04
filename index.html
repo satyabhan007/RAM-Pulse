@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>RAM Pulse Desktop Widget</title>
+  <link rel="stylesheet" href="styles.css"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- Widget Container -->
+  <div class="widget-container">
+    
+    <!-- Drag & Title Header -->
+    <header class="widget-header">
+      <div class="header-left">
+        <div class="app-logo">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
+            <path d="M6 12h4l2-5 4 10 2-5h2"></path>
+          </svg>
+        </div>
+        <span class="app-title">RAM PULSE</span>
+        <span class="live-dot" title="Telemetry Live"></span>
+      </div>
+
+      <div class="window-controls">
+        <button id="btnPin" class="icon-btn" title="Toggle Always on Top">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="17" x2="12" y2="22"></line>
+            <path d="M5 17h14l-1.5-6H6.5L5 17z"></path>
+            <path d="M9 11V4a3 3 0 0 1 6 0v7"></path>
+          </svg>
+        </button>
+        <button id="btnMinimize" class="icon-btn" title="Minimize">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+        </button>
+        <button id="themeToggle" class="icon-btn" title="Toggle Theme">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="5"/>
+            <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+          </svg>
+        </button>
+        <button id="btnClose" class="icon-btn" title="Close">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Scrollable Content -->
+    <main class="widget-body">
+      
+      <!-- Status Badge Header -->
+      <div class="status-banner">
+        <div class="status-badge" id="statusBadge">
+          <span class="status-indicator-dot"></span>
+          <span id="statusText">OPTIMAL PERFORMANCE</span>
+        </div>
+        <span class="update-time" id="lastUpdated">Updated just now</span>
+      </div>
+
+      <!-- Main Gauge Section -->
+      <section class="gauge-section">
+        <div class="gauge-wrapper">
+          <svg class="gauge-svg" viewBox="0 0 140 140">
+            <defs>
+              <linearGradient id="gaugeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#00f2fe" />
+                <stop offset="50%" stop-color="#4facfe" />
+                <stop offset="100%" stop-color="#00f2fe" />
+              </linearGradient>
+              <linearGradient id="gaugeGradientWarning" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#f59e0b" />
+                <stop offset="100%" stop-color="#ef4444" />
+              </linearGradient>
+              <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+                <feGaussianBlur stdDeviation="3" result="blur" />
+                <feComposite in="SourceGraphic" in2="blur" operator="over" />
+              </filter>
+            </defs>
+
+            <!-- Background Track -->
+            <circle class="gauge-bg" cx="70" cy="70" r="58" />
+            <!-- Animated Arc -->
+            <circle class="gauge-fill" id="gaugeArc" cx="70" cy="70" r="58" stroke-dasharray="364.4" stroke-dashoffset="182.2" />
+          </svg>
+
+          <!-- Gauge Central Display -->
+          <div class="gauge-center">
+            <span class="ram-percent" id="ramPercent">0.0%</span>
+            <span class="ram-subtext" id="ramUsedTotal">0.0 / 0.0 GB</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 1-Click Optimize Button -->
+      <section class="action-section">
+        <button id="btnOptimize" class="optimize-btn">
+          <div class="btn-glow"></div>
+          <svg class="btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+          </svg>
+          <span id="optimizeBtnLabel">BOOST MEMORY</span>
+        </button>
+      </section>
+
+      <!-- Metric Cards Grid -->
+      <section class="metrics-grid">
+        <div class="metric-card">
+          <span class="metric-label">AVAILABLE RAM</span>
+          <span class="metric-value" id="freeRamValue">0.0 GB</span>
+          <div class="mini-progress-track">
+            <div class="mini-progress-fill" id="freeRamBar" style="width: 0%"></div>
+          </div>
+        </div>
+
+        <div class="metric-card">
+          <span class="metric-label">CACHED / STANDBY</span>
+          <span class="metric-value" id="cachedRamValue">0.0 GB</span>
+          <span class="metric-sublabel">Recoverable space</span>
+        </div>
+
+        <div class="metric-card">
+          <span class="metric-label">COMMIT CHARGE</span>
+          <span class="metric-value" id="commitValue">0.0 GB</span>
+          <span class="metric-sublabel" id="commitTotalLabel">Virtual Memory</span>
+        </div>
+
+        <div class="metric-card">
+          <span class="metric-label">SESSION FREED</span>
+          <span class="metric-value accent" id="sessionFreedValue">0.00 GB</span>
+          <span class="metric-sublabel">Total RAM trimmed</span>
+        </div>
+      </section>
+
+      <!-- Live Spline Graph Section -->
+      <section class="chart-section">
+        <div class="chart-header">
+          <span class="section-title">REAL-TIME RAM TELEMETRY</span>
+          <span class="chart-legend">60s Window</span>
+        </div>
+        <div class="chart-wrapper">
+          <canvas id="telemetryChart" width="340" height="90"></canvas>
+        </div>
+      </section>
+
+      <!-- Top Memory Processes Section -->
+      <section class="processes-section">
+        <div class="processes-header">
+          <span class="section-title">TOP MEMORY PROCESSES</span>
+          <span class="process-count" id="processCountTag">5 Active</span>
+        </div>
+        <div class="process-list" id="processList">
+          <div class="process-placeholder">Loading process telemetry...</div>
+        </div>
+      </section>
+
+      <!-- Auto-Boost Settings Bar -->
+      <section class="settings-bar">
+        <div class="toggle-wrapper">
+          <input type="checkbox" id="autoBoostToggle" class="toggle-checkbox" />
+          <label for="autoBoostToggle" class="toggle-label"></label>
+          <span class="toggle-text">Auto-Boost when RAM exceeds 85%</span>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Toast Notification Popup -->
+    <div id="toastNotification" class="toast-card hidden">
+      <div class="toast-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>
+      </div>
+      <div class="toast-content">
+        <span class="toast-title" id="toastTitle">Memory Boosted!</span>
+        <span class="toast-body" id="toastBody">Freed 1.09 GB RAM across 142 processes.</span>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

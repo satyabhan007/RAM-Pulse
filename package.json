@@ -1,0 +1,27 @@
+{
+  "name": "desktop-memory-widget",
+  "version": "1.0.0",
+  "description": "Live System Memory Telemetry and 1-Click Optimization Desktop Widget for Windows",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "keywords": [
+    "memory-widget",
+    "desktop-widget",
+    "ram-optimizer",
+    "windows-telemetry"
+  ],
+  "author": "Antigravity",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^34.2.0"
+  },
+  "dependencies": {
+    "ws": "^8.17.0",
+    "ps-list": "^9.0.0"
+  },
+  "allowScripts": {
+    "electron@34.2.0": true
+  }
+}
