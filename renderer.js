@@ -186,13 +186,22 @@ function setupEventListeners() {
   }
 }
 
+// State guards
+let isFetchingTelemetry = false;
+let lastAutoBoostTime = 0;
+const AUTO_BOOST_COOLDOWN_MS = 45000; // 45 seconds cooldown
+
 // Fetch System Telemetry via API
 async function fetchTelemetry() {
+  if (isFetchingTelemetry) return;
+  isFetchingTelemetry = true;
   try {
     const stats = await fetchMemoryStatsApi();
     applyTelemetry(stats);
   } catch (err) {
     console.error('Error fetching telemetry:', err);
+  } finally {
+    isFetchingTelemetry = false;
   }
 }
 
@@ -215,9 +224,13 @@ function applyTelemetry(stats) {
     lastUpdatedEl.textContent = `Updated ${stats.timestamp || new Date().toLocaleTimeString()}`;
   }
 
-  // Auto-Boost Trigger Check
+  // Auto-Boost Trigger Check with Cooldown
   if (autoBoostToggle && autoBoostToggle.checked && stats.percentUsed >= 85) {
-    handleOptimize();
+    const now = Date.now();
+    if (now - lastAutoBoostTime > AUTO_BOOST_COOLDOWN_MS) {
+      lastAutoBoostTime = now;
+      handleOptimize();
+    }
   }
 }
 
