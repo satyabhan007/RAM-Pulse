@@ -163,6 +163,27 @@ function setupEventListeners() {
       });
     }
   }
+
+  // Auto-Start persistence toggle
+  const autoStartToggle = document.getElementById('autoStartToggle');
+  const autoStartRow = document.getElementById('autoStartRow');
+  if (isElectron && window.electronAPI && window.electronAPI.getAutoStart) {
+    window.electronAPI.getAutoStart().then((enabled) => {
+      if (autoStartToggle) autoStartToggle.checked = enabled;
+    });
+    if (autoStartToggle) {
+      autoStartToggle.addEventListener('change', async () => {
+        const enabled = await window.electronAPI.setAutoStart(autoStartToggle.checked);
+        if (autoStartToggle) autoStartToggle.checked = enabled;
+        showToast(
+          enabled ? 'Auto-Start Enabled' : 'Auto-Start Disabled',
+          enabled ? 'RAM Pulse will now launch automatically on Windows boot.' : 'RAM Pulse will not start on boot.'
+        );
+      });
+    }
+  } else if (autoStartRow) {
+    autoStartRow.style.display = 'none';
+  }
 }
 
 // Fetch System Telemetry via API
