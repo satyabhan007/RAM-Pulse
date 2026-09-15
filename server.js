@@ -5,7 +5,7 @@ const { exec } = require('child_process');
 const WebSocket = require('ws');
 const { collectMemory } = require('./scripts/collect_memory');
 
-const PORT = 3888;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3888;
 const TELEMETRY_INTERVAL_MS = process.env.TELEMETRY_INTERVAL_MS ? parseInt(process.env.TELEMETRY_INTERVAL_MS) : 2000;
 
 function runScript(scriptRelativePath) {
@@ -21,6 +21,45 @@ function runScript(scriptRelativePath) {
       }
     });
   });
+}
+
+// Linux "Boost": drop pagecache/dentries/inodes (needs sudo or vm.drop_caches
+// writable) + advise kernel via sync. Never kills processes — safe to run.
+// Falls back to GC + sync when no privileges.
+function optimizeLinux() {
+  return new Promise((resolve) => {
+    const before = getFreeMB();
+    const stamp = new Date().toLocaleTimeString('en-US', { hour12: false });
+    const tryDrop = (level, cb) => {
+      // Prefer pkexec/sudo-less write; try direct write first (may work if
+      // sysctl vm.drop_caches is writable or running as root), else sudo -n.
+      exec(`sync; (echo ${level} > /proc/sys/vm/drop_caches 2>/dev/null || sudo -n sh -c 'echo ${level} > /proc/sys/vm/drop_caches' 2>/dev/null); echo done`, (err) => cb(!err));
+    };
+    tryDrop(3, () => {
+      setTimeout(() => {
+        const after = getFreeMB();
+        let freedMB = Math.round((after - before) * 10) / 10;
+        if (!(freedMB > 0)) freedMB = 0;
+        if (global.gc) { try { global.gc(); } catch (e) {} }
+        resolve({
+          freedMB,
+          freedGB: Math.round((freedMB / 1024) * 100) / 100,
+          processesTrimmed: 0,
+          note: 'Linux: dropped pagecache/dentries/inodes (or sync only if unprivileged). No processes killed.',
+          timestamp: stamp,
+        });
+      }, 800);
+    });
+  });
+}
+
+function getFreeMB() {
+  try {
+    const txt = fs.readFileSync('/proc/meminfo', 'utf8');
+    const m = txt.match(/^MemAvailable:\s+(\d+)/m);
+    if (m) return parseInt(m[1], 10) / 1024;
+  } catch (e) {}
+  return 0;
 }
 
 const mimeTypes = {
@@ -66,7 +105,12 @@ const server = http.createServer(async (req, res) => {
   // Handle optimization request (POST /api/optimize)
   if (req.method === 'POST' && req.url === '/api/optimize') {
     try {
-      const result = await runScript('scripts/optimize_memory.ps1');
+      let result;
+      if (process.platform === 'win32') {
+        result = await runScript('scripts/optimize_memory.ps1');
+      } else {
+        result = await optimizeLinux();
+      }
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       res.end(JSON.stringify(result));
     } catch (err) {

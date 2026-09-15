@@ -14,8 +14,18 @@ if (!gotTheLock) {
 // Disable GPU to avoid GPU cache creation errors on Windows
 app.commandLine.appendSwitch('disable-gpu');
 
+// Linux: sandbox needs privileges the dev container may not grant; running
+// with --no-sandbox (or this switch) avoids the chrome-sandbox setuid error.
+if (process.platform === 'linux') {
+  app.commandLine.appendSwitch('no-sandbox');
+}
+
 // Set a custom cache directory with guaranteed write permissions
-const cacheDir = path.join(os.homedir(), 'AppData', 'Local', 'RAMPulseCache');
+// Windows: %LOCALAPPDATA%/RAMPulseCache | Linux: ~/.cache/rampulse
+const cacheDir =
+  process.platform === 'win32'
+    ? path.join(os.homedir(), 'AppData', 'Local', 'RAMPulseCache')
+    : path.join(os.homedir(), '.cache', 'rampulse');
 if (!fs.existsSync(cacheDir)) {
   fs.mkdirSync(cacheDir, { recursive: true });
 }
@@ -35,13 +45,37 @@ const startupShortcutPath = path.join(startupDir, 'RAM Pulse Widget.lnk');
 
 function isAutoStartEnabled() {
   try {
-    return fs.existsSync(startupShortcutPath);
+    if (process.platform === 'win32') {
+      return fs.existsSync(startupShortcutPath);
+    }
+    // Linux: XDG autostart .desktop entry
+    return fs.existsSync(
+      path.join(os.homedir(), '.config', 'autostart', 'rampulse.desktop')
+    );
   } catch (e) {
     return false;
   }
 }
 
 function setAutoStart(enable) {
+  if (process.platform !== 'win32') {
+    // Linux: create/remove ~/.config/autostart/rampulse.desktop
+    try {
+      const autostartDir = path.join(os.homedir(), '.config', 'autostart');
+      const desktopFile = path.join(autostartDir, 'rampulse.desktop');
+      if (enable) {
+        fs.mkdirSync(autostartDir, { recursive: true });
+        const electronBin = path.join(__dirname, 'node_modules', 'electron', 'dist', 'electron');
+        const entry = `[Desktop Entry]\nType=Application\nName=RAM Pulse\nComment=Live Memory Telemetry Widget\nExec="${electronBin}" "${__dirname}"\nIcon=${path.join(__dirname, 'assets', 'icon.png')}\nTerminal=false\nCategories=System;Monitor;\nX-GNOME-Autostart-enabled=true\n`;
+        fs.writeFileSync(desktopFile, entry);
+      } else {
+        if (fs.existsSync(desktopFile)) fs.unlinkSync(desktopFile);
+      }
+    } catch (e) {
+      console.error('Failed to update Linux autostart:', e);
+    }
+    return;
+  }
   const electronExe = path.join(__dirname, 'node_modules', 'electron', 'dist', 'electron.exe');
   const iconPath = path.join(__dirname, 'assets', 'icon.ico');
   const projectDir = __dirname;
@@ -136,7 +170,12 @@ function updateTrayMenu() {
       label: '⚡ Boost Memory Now',
       click: async () => {
         try {
-          const result = await runPowerShellScript('scripts/optimize_memory.ps1');
+          let result;
+          if (process.platform === 'win32') {
+            result = await runPowerShellScript('scripts/optimize_memory.ps1');
+          } else {
+            result = await optimizeMemoryLinux();
+          }
           if (tray) {
             tray.displayBalloon({
               title: 'RAM Boosted!',
@@ -212,6 +251,40 @@ let isFetchingProcesses = false;
 function fetchTopProcessesThrottled() {
   if (isFetchingProcesses) return;
   isFetchingProcesses = true;
+  if (process.platform === 'win32') {
+    fetchTopProcessesWindows();
+  } else {
+    fetchTopProcessesUnix();
+  }
+}
+
+function fetchTopProcessesUnix() {
+  exec('ps -eo comm=,pid=,rss= --sort=-rss 2>/dev/null | head -n 6', (err, stdout) => {
+    isFetchingProcesses = false;
+    if (err || !stdout) return;
+    try {
+      const procs = [];
+      for (const line of stdout.trim().split('\n')) {
+        const parts = line.trim().split(/\s+/);
+        if (parts.length < 3) continue;
+        const rssKB = parseFloat(parts[parts.length - 1]);
+        const pid = parseInt(parts[parts.length - 2], 10);
+        const name = parts.slice(0, parts.length - 2).join(' ').split('/').pop();
+        if (!pid || isNaN(rssKB)) continue;
+        const workingSetMB = Math.round((rssKB / 1024) * 10) / 10;
+        if (workingSetMB < 25) continue;
+        procs.push({ name: name.substring(0, 40), pid, workingSetMB });
+        if (procs.length >= 5) break;
+      }
+      if (procs.length > 0) {
+        cachedTopProcesses = procs;
+        lastProcessFetchTime = Date.now();
+      }
+    } catch (e) {}
+  });
+}
+
+function fetchTopProcessesWindows() {
   const cmd = `powershell -NoProfile -Command "[System.Diagnostics.Process]::GetProcesses() | Where-Object { $_.WorkingSet64 -gt 25MB } | Sort-Object WorkingSet64 -Descending | Select-Object -First 5 | ForEach-Object { [PSCustomObject]@{ name = $_.ProcessName; pid = $_.Id; workingSetMB = [math]::Round($_.WorkingSet64 / 1MB, 1) } } | ConvertTo-Json"`;
   exec(cmd, { windowsHide: true }, (err, stdout) => {
     isFetchingProcesses = false;
@@ -229,6 +302,33 @@ function fetchTopProcessesThrottled() {
 
 // Initial populate of top processes
 fetchTopProcessesThrottled();
+
+// Shared Linux optimizer (sync + drop_caches, no process killing).
+// Used by the tray menu and the optimize-memory IPC handler alike.
+async function optimizeMemoryLinux() {
+  const readAvailMB = () => {
+    try {
+      const t = fs.readFileSync('/proc/meminfo', 'utf8').match(/^MemAvailable:\s+(\d+)/m);
+      return t ? parseInt(t[1], 10) / 1024 : 0;
+    } catch (e) { return 0; }
+  };
+  const before = readAvailMB();
+  await new Promise((res) => {
+    exec(`sync; (echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || sudo -n sh -c 'echo 3 > /proc/sys/vm/drop_caches' 2>/dev/null); echo done`, () => res());
+  });
+  await new Promise((r) => setTimeout(r, 800));
+  const after = readAvailMB();
+  let freedMB = Math.round((after - before) * 10) / 10;
+  if (!(freedMB > 0)) freedMB = 0;
+  setTimeout(fetchTopProcessesThrottled, 300);
+  return {
+    freedMB,
+    freedGB: Math.round((freedMB / 1024) * 100) / 100,
+    processesTrimmed: 0,
+    note: 'Linux boost: pagecache drop only, no processes touched.',
+    timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
+  };
+}
 
 // Execute PowerShell script helper
 function runPowerShellScript(scriptPath) {
@@ -272,15 +372,34 @@ ipcMain.handle('get-memory-stats', async () => {
       fetchTopProcessesThrottled();
     }
 
+    // Linux: real cached/commit numbers from /proc/meminfo
+    let cachedGB = Math.round(freeRamGB * 0.25 * 100) / 100;
+    let commitTotalGB = Math.round(totalRamGB * 1.8 * 100) / 100;
+    let commitUsedGB = Math.round((usedRamGB + 2.4) * 100) / 100;
+    if (process.platform === 'linux') {
+      try {
+        const txt = fs.readFileSync('/proc/meminfo', 'utf8');
+        const get = (k) => {
+          const m = txt.match(new RegExp('^' + k + ':\\s+(\\d+)', 'm'));
+          return m ? parseInt(m[1], 10) : 0;
+        };
+        const toGB = (kb) => Math.round((kb / 1024 / 1024) * 100) / 100;
+        cachedGB = toGB(get('Cached') + get('Buffers') + get('SReclaimable'));
+        commitTotalGB = Math.round((totalRamGB + toGB(get('SwapTotal'))) * 100) / 100;
+        commitUsedGB = Math.round((usedRamGB + toGB(get('SwapTotal') - get('SwapFree'))) * 100) / 100;
+      } catch (e) {}
+    }
+
     return {
       totalRamGB,
       usedRamGB,
       freeRamGB,
       percentUsed,
-      cachedGB: Math.round(freeRamGB * 0.25 * 100) / 100,
-      commitTotalGB: Math.round(totalRamGB * 1.8 * 100) / 100,
-      commitUsedGB: Math.round((usedRamGB + 2.4) * 100) / 100,
+      cachedGB,
+      commitTotalGB,
+      commitUsedGB,
       status,
+      platform: process.platform,
       topProcesses: cachedTopProcesses,
       timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
     };
@@ -291,6 +410,9 @@ ipcMain.handle('get-memory-stats', async () => {
 
 ipcMain.handle('optimize-memory', async () => {
   try {
+    if (process.platform !== 'win32') {
+      return await optimizeMemoryLinux();
+    }
     const result = await runPowerShellScript('scripts/optimize_memory.ps1');
     setTimeout(fetchTopProcessesThrottled, 300);
     return result;
